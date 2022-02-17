@@ -1,15 +1,25 @@
 const http = require('http');
-import {AccountType, IEncryption, IStorage, NetworkEnum, StateType} from "@liquality/core/dist/types";
+import {
+  AccountType,
+  IAccount,
+  IEncryption,
+  IStorage,
+  NetworkEnum,
+  StateType, SwapPayloadType,
+  SwapProvidersEnum
+} from "@liquality/core/dist/types";
 import {Config} from "@liquality/core/dist/config";
 import Wallet from "@liquality/core/dist/wallet";
 import {LocalStorage} from 'node-localstorage'
 import {AES, enc as Enc, lib as Lib} from 'crypto-js'
 import _pbkdf2 from 'pbkdf2'
-import {assets as cryptoassets} from '@liquality/cryptoassets'
+import {assets as cryptoassets, currencyToUnit} from '@liquality/cryptoassets'
 import {SendOptions} from "@liquality/types";
 import BigNumber from 'bignumber.js'
-import dotenv, {config} from 'dotenv'
+import dotenv from 'dotenv'
 
+
+//-------------------------1. PROVIDE IMPLEMENTATIONS FOR THE CLASSES THAT ARE PLATFORM SPECIFIC -----------------------
 const PBKDF2_ITERATIONS = 1000000
 const PBKDF2_LENGTH = 32
 const PBKDF2_DIGEST = 'sha256'
@@ -25,7 +35,6 @@ interface CipherJsonType {
 class EncryptionManager implements IEncryption {
 
   public async encrypt(value: string, keySalt: string, password: string): Promise<string> {
-    // const keySalt = Enc.Hex.stringify(Lib.WordArray.random(16))
     const derivedKey = await this.pbkdf2(password, keySalt)
     const rawEncryptedValue = AES.encrypt(value, derivedKey)
     return Promise.resolve(this.JsonFormatter.stringify(rawEncryptedValue));
@@ -44,7 +53,6 @@ class EncryptionManager implements IEncryption {
     } catch (e) {
       return ''
     }
-    // return Promise.resolve("");
   }
 
 
@@ -148,14 +156,15 @@ class StorageManager implements IStorage<StateType> {
 
 
 export default async function buildWallet() {
-  //-------------------------1. CREATING AN INSTANCE OF THE WALLET--------------------------------------------------------
+  //-------------------------2. CREATING AN INSTANCE OF THE WALLET--------------------------------------------------------
   const excludedProps: Array<keyof StateType> = ['key', 'wallets', 'unlockedAt']
   const storageManager = new StorageManager('@liquality-storage', excludedProps)
   const encryptionManager = new EncryptionManager()
   const config = new Config(envConfig.INFURA_API_KEY)
   const wallet = new Wallet(storageManager, encryptionManager, config)
 
-  //-------------------------2. REGISTER THE NEEDED CALLBACKS--------------------------------------------------------
+
+  //-------------------------3. REGISTER THE NEEDED CALLBACKS--------------------------------------------------------
   wallet.on('onTransactionUpdate', (transaction) => {
     console.log(transaction)
   })
@@ -163,11 +172,13 @@ export default async function buildWallet() {
     console.log(account)
   })
 
-  //-------------------------3. BUILD/POPULATE THE WALLET--------------------------------------------------------
+
+  //-------------------------4. BUILD/POPULATE THE WALLET--------------------------------------------------------
   await wallet.init(envConfig.PASSWORD, envConfig.MNEMONIC, true)
   await wallet.addAccounts(NetworkEnum.Testnet)
 
-  //-------------------------4. SEND SOME ETH--------------------------------------------------------
+
+  //-------------------------5. SEND SOME ETH--------------------------------------------------------
   const account = await wallet.getAccount(
       cryptoassets['ETH'].chain,
       NetworkEnum.Testnet,
@@ -182,15 +193,56 @@ export default async function buildWallet() {
     console.log('error: ', error.message)
   })
   console.log('sendResponse: ', sendResponse)
-  //-------------------------5. SWAP ETH FOR BTC--------------------------------------------------------
 
-  return true;
+
+  //-------------------------6. SWAP ETH FOR BTC--------------------------------------------------------
+  //TODO prompt the user in the console to enter these values
+  const fromAsset = 'ETH'
+  const toAsset = 'BTC'
+  const fromAmount = new BigNumber(0.004)
+  const toAmount = new BigNumber(0.0004)
+  const fromNetworkFee = new BigNumber(2.99)
+  const toNetworkFee = new BigNumber(1)
+
+  const fromAccount: IAccount = wallet.getAccount(cryptoassets[fromAsset].chain, NetworkEnum.Testnet)
+  const toAccount: IAccount = wallet.getAccount(cryptoassets[toAsset].chain, NetworkEnum.Testnet)
+
+  if (!fromAccount || !toAccount) {
+    console.error('Make sure to provide two accounts to perform a swap')
+  }
+
+  const swapProvider = wallet.getSwapProvider(SwapProvidersEnum.LIQUALITY)
+  if (!swapProvider) {
+    console.error('Failed to perform the swap')
+  }
+
+  const quote: Partial<SwapPayloadType> = {
+    from: fromAsset,
+    to: toAsset,
+    fromAmount: new BigNumber(
+        currencyToUnit(cryptoassets[fromAsset], fromAmount.toNumber()),
+    ),
+    toAmount: new BigNumber(
+        currencyToUnit(cryptoassets[toAsset], toAmount.toNumber()),
+    ),
+    fee: fromNetworkFee.toNumber(),
+    claimFee: toNetworkFee.toNumber(),
+  }
+
+  const swapResponse = await swapProvider
+      .performSwap(fromAccount, toAccount, quote)
+      .catch((error: any) => {
+        console.error(`Failed to perform the swap: ${error}`)
+      })
+
+  console.log(`SwapResponse: ${swapResponse}`)
 }
 
 
 const hostname = '127.0.0.1';
 const port = 3000;
 
+//TODO Use the console mode instead to allow user interactions
 const server = http.createServer((req, res) => {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/plain');
