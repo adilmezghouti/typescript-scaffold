@@ -40,3 +40,4 @@ dist
 
 #tests are typescript
 test/*js
+/.env
