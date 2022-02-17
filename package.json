@@ -6,7 +6,8 @@
   "typings": "dist/index",
   "scripts": {
     "prepublish": "tsc",
-    "test": "tsc -p test/tsconfig.json"
+    "test": "tsc -p test/tsconfig.json",
+    "start": "tsc && node --trace-warnings dist/index.js"
   },
   "engines": {
     "node": ">=6.9.0"

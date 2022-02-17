@@ -1,3 +1,4 @@
+const http = require('http');
 import {AccountType, IEncryption, IStorage, NetworkEnum, StateType} from "@liquality/core/dist/types";
 import {Config} from "@liquality/core/dist/config";
 import Wallet from "@liquality/core/dist/wallet";
@@ -177,12 +178,26 @@ export default async function buildWallet() {
     value: new BigNumber(3000000000000000), //0.003 ETH
     fee: 3.1
   }
-  const sendResponse = await assets[0].transmit(options)
+  const sendResponse = await assets[0].transmit(options).catch(error => {
+    console.log('error: ', error.message)
+  })
   console.log('sendResponse: ', sendResponse)
-
   //-------------------------5. SWAP ETH FOR BTC--------------------------------------------------------
 
   return true;
 }
 
-buildWallet()
+
+const hostname = '127.0.0.1';
+const port = 3000;
+
+const server = http.createServer((req, res) => {
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/plain');
+  res.end('Hello World');
+});
+
+server.listen(port, hostname, async () => {
+  console.log(`Server running at http://${hostname}:${port}/`);
+  await buildWallet()
+});
